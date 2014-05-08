@@ -28,7 +28,6 @@ setup(
     package_data={"": ["LICENSE", "README.rst"]},
     classifiers=[
         "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
-        "Operating System :: POSIX :: Linux",
         "Environment :: Console",
         "Programming Language :: Python",
         "Programming Language :: Python :: 2.7",

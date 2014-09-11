@@ -919,10 +919,16 @@ def get_stream(song, force=False):
             dbg("fetched " + url)
 
         except (HTTPError, socket.timeout):
-            time.sleep(2)  # try again
-            dbg("[1] fetching 2nd attempt ")
-            wdata = urlopen(url, timeout=7).read().decode("utf8")
-            dbg("fetched 2nd attempt" + url)
+            try:
+                if int(HTTPError.code) == 503:
+                    time.sleep(70)  # Overloaded server, try again after a minute
+                else:
+                    time.sleep(2)  # try again
+                dbg("[1] fetching 2nd attempt ")
+                wdata = urlopen(url, timeout=7).read().decode("utf8")
+                dbg("fetched 2nd attempt" + url)
+            except(Exception):
+                raise URLError("This track is not accessible: "+url)
 
         j = json.loads(wdata)
 
@@ -942,6 +948,7 @@ def playsong(song, failcount=0):
     # pylint: disable = R0912
     try:
         track_url = get_stream(song)
+        print(track_url)
         song['track_url'] = track_url
 
     except (URLError, HTTPError, socket.timeout) as e:
@@ -1996,11 +2003,86 @@ def vp():
     g.content = generate_songlist_display()
 
 
+def xbmc_send_command(command):
+    request = urlencode({"request": command})
+    ip_and_port = Config.PLAYERARGS
+    urlopen("http://%s/jsonrpc?%s" % (ip_and_port, request)).read().decode("utf8")
+
+
+def xbmc_clear_playlist():
+    request = """
+    {
+        "jsonrpc":"2.0",
+        "id":1,
+        "method":"Playlist.Clear",
+        "params":{"playlistid":0}
+    }
+    """
+    xbmc_send_command(request)
+
+
+def xbmc_queue(songlist, start_playing):
+    started = False
+    for n, song in enumerate(songlist):
+        item_url = get_stream(song)
+        request = """{
+                "jsonrpc":"2.0",
+                "id":1,
+                "method":"Playlist.Add",
+                "params":{
+                    "playlistid":0,
+                    "item":{
+                        "file":"%s"}
+                    }
+                }""" % item_url
+        xbmc_send_command(request)
+        print("Queued song %d" % n)
+        if start_playing and not started:
+            xbmc_play_queue()
+            started = True
+        # wait for 20 seconds to provide some
+        # time before we request the next url
+        # from the server. Otherwise we will get
+        # a 503 message.
+        if start_playing:
+            time.sleep(20)
+
+
+def xbmc_play_queue():
+    request = """{
+    "jsonrpc":"2.0",
+    "method":"Player.Open",
+    "id":1,
+    "params":{
+        "item":{
+            "playlistid":0,
+            "position":0
+        }
+    }}
+    """
+    xbmc_send_command(request)
+
+
+def xbmc_play_range(songlist, start_playing=True):
+    xbmc_clear_playlist()
+    xbmc_queue(songlist, start_playing=start_playing)
+    if not start_playing:
+        xbmc_play_queue()
+
+
 def play_range(songlist, shuffle=False, repeat=False):
     """ Play a range of songs, exit cleanly on keyboard interrupt. """
 
     if shuffle:
         random.shuffle(songlist)
+
+    # basic XBMC support
+    if "xbmc" in Config.PLAYER:
+        xbmc_play_range(songlist)
+        # g.content = playback_progress(n, songlist, repeat=False)
+        g.content = generate_songlist_display()
+        screen_update()
+        return
 
     if not repeat:
 
